@@ -1,0 +1,914 @@
+#!/usr/bin/python
+# lvmstat.py
+# Copyright (C) 2014 Red Hat, Inc. Bryn M. Reeves <bmr@redhat.com>
+""" lvmstat - device-mapper and LVM2 statistics """
+
+# for print(..., file=sys.stderr)
+from __future__ import print_function
+
+import os
+import sys
+import time
+import shlex
+import signal
+import locale
+from optparse import OptionParser
+from subprocess import Popen, CalledProcessError, PIPE
+
+# globals
+
+DMSETUP = "dmsetup"
+PROC_UPTIME = "/proc/uptime"
+PROC_STAT = "/proc/stat"
+PROC_MEMINFO = "/proc/meminfo"
+DM_MOD_PARAM_PATH ="/sys/module/dm_mod/parameters/"
+DM_ALLOCED_BYTES = "stats_current_allocated_bytes"
+
+ENV_TIME_FMT = "S_TIME_FORMAT"
+
+K_ISO = "ISO"
+
+S_SIZE = 512
+
+# try to obtain the value of USER_HZ from the environment
+try:
+    HZ = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+except KeyError:
+    HZ = 100
+
+# enable debugging messages
+_debug = False
+
+# the list of devices to be monitored
+_devices = []
+
+# the current set of monitored regions
+_regions = dict()
+
+# Two element list of dictionaries containing counter samples.
+#
+# Each dictionary is indexed by device and contains a dictionary
+# of iostats objects indexed by region ID.
+_iostats = [dict(), dict()]
+# current index into _iostats; inverted at the end of each _interval.
+_curr = 0
+
+# CPU counters from PROC_STAT
+_cpustats = [None, None]
+
+# memory usage from /sys/module/dm_mod/parameters/stats_current_allocated_bytes
+_memstats = [(0, 0), (0, 0)]
+
+# system uptime (seconds) indexed by _curr
+_uptime = [0.0, 0.0]
+
+# interval between successive rounds of stats
+_interval = 1
+
+# count of stats reports to print
+_count = 100
+
+# boolean flags controlling report formatting
+
+# report statistics for each extent in a device
+_extents = False
+# report statistics for each segment in a device
+_segments = False
+# report statistics for device areas of a given size
+_areas = False
+_nr_areas = False
+
+# default is kB
+_display_mb = False
+_display_kb = False
+
+# display the CPU report
+_show_cpu = False
+
+# display timestamps
+_timestamp = False
+# True if ENV_TIME_FORMAT=K_ISO
+_display_iso = False
+
+# default is traditional
+_extended = False
+
+_lvmstat_id = "lvmstat1"
+
+
+class CpuStats(object):
+    """ Class to represent CPU counters from /proc/stat """
+    cpu_user = 0
+    cpu_nice = 0
+    cpu_sys = 0
+    cpu_idle = 0
+    cpu_iowait = 0
+    cpu_steal = 0
+    cpu_hardirq = 0
+    cpu_softirq = 0
+    cpu_guest = 0
+    cpu_guest_nice = 0
+
+    def __init__(self):
+        def _write_cpustats_debug(stats):
+            if not _debug:
+                return
+            fields = [
+                "user=%d", "nice=%d", "sys=%d", "idle=%d", "iowait=%d",
+                "steal=%d", "hardirq=%d", "softirq=%d", "guest=%d",
+                "guest_nice=%d"
+            ]
+            f = lambda (s, d): s % d
+            dbgstr = ", ".join(map(f, zip(fields, stats)))
+            _log_debug("cpustat(%s)" % dbgstr)
+
+        for line in open(PROC_STAT, 'r').readlines():
+            if line.startswith("cpu "):
+                fields = line.split()
+                counters = map(int, fields[1:])
+                _log_debug("counters: %s" % counters)
+                self.cpu_user = counters[0]
+                self.cpu_nice = counters[1]
+                self.cpu_sys = counters[2]
+                self.cpu_idle = counters[3]
+                self.cpu_iowait = counters[4]
+                self.cpu_steal = counters[5]
+                self.cpu_hardirq = counters[6]
+                self.cpu_softirq = counters[7]
+                self.cpu_guest = counters[8]
+                self.cpu_guest_nice = counters[9]
+                _write_cpustats_debug(counters)
+                break
+
+
+class IoStats(object):
+    """ Class to represrent IO counters from device-mapper. """
+    area_id = None
+    start = 0
+    length = 0
+    nr_ios = 0
+    rd_sectors = 0
+    wr_sectors = 0
+    rd_ios = 0
+    rd_merges = 0
+    wr_ios = 0
+    wr_merges = 0
+    rd_ticks = 0
+    wr_ticks = 0
+    ios_pgr = 0
+    tot_ticks = 0
+    rq_ticks = 0
+    rd_tot_ms = 0
+    wr_tot_ms = 0
+
+    def __init__(self, line):
+        def _write_iostats_debug(stats):
+            if not _debug:
+                return
+            fields = [
+                "rd_ios=%d", "rd_merges=%d", "rd_sectors=%d", "rd_ticks=%d",
+                "wr_ios=%d", "wr_merges=%d", "wr_sectors=%d", "wr_ticks=%d",
+                "ios_pgr=%d", "tot_ticks=%d", "rq_ticks=%d", "nr_ios=%d",
+                "rd_tot_ms=%d", "wr_tot_ms=%d"
+            ]
+            f = lambda (s, d): s % d
+            dbgstr = ", ".join(map(f, zip(fields, stats)))
+            _log_debug("iostat(%s)" % dbgstr)
+
+        if not line:
+            return
+        fields = line.split()
+        s_range = fields[0]
+        self.area_id = s_range
+        (start, length) = map(int, s_range.split("+"))
+
+        stats = map(int, fields[1:])
+        _log_debug("counters: %s" % stats)
+
+        # 0. the number of reads completed
+        # 1. the number of reads merged
+        # 2. the number of sectors read
+        # 3. the number of milliseconds spent reading
+        self.rd_ios = stats[0]
+        self.rd_merges = stats[1]
+        self.rd_sectors = stats[2]
+        self.rd_ticks = stats[3]
+
+        # 4. the number of writes completed
+        # 5. the number of writes merged
+        # 6. the number of sectors written
+        # 7. the number of milliseconds spent writing
+        self.wr_ios = stats[4]
+        self.wr_merges = stats[5]
+        self.wr_sectors = stats[6]
+        self.wr_ticks = stats[7]
+
+        # 8. the number of I/Os currently in progress
+        # 9. the number of milliseconds spent doing I/Os
+        # 10. the weighted number of milliseconds spent doing I/Os
+        self.ios_pgr = stats[8]
+        self.tot_ticks = stats[9]
+        self.rq_ticks = stats[10]
+        self.nr_ios = self.rd_ios + self.wr_ios
+
+        # Additional counters:
+        # 11. the total time spent reading in milliseconds
+        # 12. the total time spent writing in milliseconds
+        if len(stats) > 11:
+            self.rd_tot_ms = int(stats[11])
+            self.wr_tot_ms = int(stats[12])
+
+        _write_iostats_debug(stats)
+
+
+def _log_error(msg):
+    print(msg, file=sys.stderr)
+
+
+def _log_warn(msg):
+    print("WARNING: " + msg, file=sys.stderr)
+
+
+def _log_debug(msg):
+    if _debug:
+        _log_error(msg)
+
+
+def _log_info(msg):
+    print(msg)
+
+
+def _exit(status):
+    if len(_regions):
+        _remove_regions(_regions)
+    sys.exit(status)
+
+
+# Adapted from the python2.7 subprocess.py since py2.6 lacks check_output().
+# Allows the script to run unmodified on RHEL6.
+def check_output(*popenargs, **kwargs):
+    r"""Run command with arguments and return its output as a byte string.
+
+    If the exit code was non-zero it raises a CalledProcessError.  The
+    CalledProcessError object will have the return code in the returncode
+    attribute.
+    """
+    if 'stdout' in kwargs:
+        raise ValueError('stdout argument not allowed, it will be overridden.')
+    process = Popen(stdout=PIPE, *popenargs, **kwargs)
+    output, unused_err = process.communicate()
+    retcode = process.poll()
+    if retcode:
+        cmd = kwargs.get("args")
+        if cmd is None:
+            cmd = popenargs[0]
+        raise CalledProcessError(retcode, cmd)
+    return output
+
+
+def _shell_out(cmd):
+    _log_debug("calling: %s" % cmd)
+    try:
+        return check_output(shlex.split(cmd))
+    except CalledProcessError as e:
+        _log_debug("call to %s failed: %d" % (cmd.split()[0], e.returncode))
+        return False
+    pass
+
+
+def _dm_send_message(dev, sector, msg):
+    msg_args = (dev, sector, msg)
+    return _shell_out(DMSETUP + " message %s %d %s" % msg_args)
+
+
+def _dm_stats_create(dev, s_range, s_step, s_prog_id, s_aux):
+    """Create a new region and return the region_id."""
+    msg_args = "%s %s %s %s" % (s_range, s_step, s_prog_id, s_aux)
+    return _dm_send_message(dev, 0, "@stats_create " + msg_args)
+
+
+def _dm_stats_delete(dev, s_region_id):
+    return _dm_send_message(dev, 0, "@stats_delete %s" % s_region_id)
+
+
+def _dm_stats_clear(dev, s_region_id):
+    return _dm_send_message(dev, 0, "@stats_clear %s" % s_region_id)
+
+
+def _dm_stats_list(dev, s_prog_id=None):
+    """ returns a multi-line string buffer of available regions
+    registered with @stats_create."""
+    msg_str = "@stats_list"
+    if s_prog_id:
+        msg_str = msg_str + ' ' + s_prog_id
+    return _dm_send_message(dev, 0, msg_str)
+
+
+def _dm_stats_print(dev, s_region_id, start=None, limit=None, clear=False):
+    """ returns a multi-line string buffer of counter values.
+    lines are of the form:
+
+    <start_sector>+<length> counters
+
+    Counter fields:
+      1. the number of reads completed
+      2. the number of reads merged
+      3. the number of sectors read
+      4. the number of milliseconds spent reading
+      5. the number of writes completed
+      6. the number of writes merged
+      7. the number of sectors written
+      8. the number of milliseconds spent writing
+      9. the number of I/Os currently in progress
+      10. the number of milliseconds spent doing I/Os
+      11. the weighted number of milliseconds spent doing I/Os
+
+      Additional counters:
+      12. the total time spent reading in milliseconds
+      13. the total time spent writing in milliseconds
+
+    See Documentation/device-mapper/statistics.txt and
+    Documentation/iostats.txt for a complete description.
+    """
+    print_msg = "@stats_print"
+    if clear:
+        print_msg = print_msg + "_clear"
+    if start and limit:
+        msg_args = "%s %s %s" % (s_region_id, start, limit)
+    else:
+        msg_args = "%s" % s_region_id
+    return _dm_send_message(dev, 0, print_msg + " " + msg_args)
+
+
+def _dm_stats_print_clear(dev, s_region_id, start=None, limit=None):
+    """ returns a multi-line string buffer of counter values and clear
+    all counters (except in-flight IO). Lines are returned in the same
+    format as _dm_stats_print()."""
+    return _dm_stats_print(dev, s_region_id, start, limit, clear=True)
+
+
+def _set_alarm(secs):
+    signal.signal(signal.SIGALRM, _handle_alarm)
+    signal.alarm(secs)
+
+
+def _handle_alarm(signum, stack):
+    """ Handler for SIGALARM. """
+    if _count:
+        _set_alarm(_interval)
+
+
+def _scale(m, n, p):
+    """ Scale samples over an interval to a rate """
+    return ((n - m) / p) * HZ
+
+
+def _scale_percent(m, n, p):
+    """ Scale samples over an interval to a percentage """
+    return ((n - m) / p) * 100
+
+
+def _show_stats_ext(dev, itv, fctr, stc, stp):
+    """ Show statatistics in the extended iostat format. """
+    _log_debug("_show_stats_ext(itv=%d, fctr=%d, ...)" % (itv, fctr))
+
+    dev_str = "%-13s" % dev
+
+    # throughput and utilisation
+    tput = ((stc.nr_ios - stp.nr_ios) * HZ) / itv
+    util = _scale(stp.tot_ticks, stc.tot_ticks, itv)
+
+    nr_ios = stc.nr_ios - stp.nr_ios
+    nr_rd_ios = stc.rd_ios - stp.rd_ios
+    nr_wr_ios = stc.wr_ios - stp.wr_ios
+
+    # service time
+    svctm = 0.0
+    if tput:
+        svctm = util / tput
+
+    # average wait time
+    await = 0.0
+    if nr_ios:
+        io_ticks = stc.rd_ticks - stp.rd_ticks + stc.wr_ticks - stp.wr_ticks
+        await = io_ticks / nr_ios
+
+    r_await = 0.0
+    if nr_rd_ios:
+        r_await = (stc.rd_ticks - stp.rd_ticks) / nr_rd_ios
+
+    w_await = 0.0
+    if nr_wr_ios:
+        w_await = (stc.wr_ticks - stp.wr_ticks) / nr_wr_ios
+
+    # average request size
+    arqsz = 0.0
+    if nr_ios:
+        sectors = stc.rd_sectors - stp.rd_sectors
+        sectors += stc.wr_sectors - stp.wr_sectors
+        arqsz = sectors / nr_ios
+
+    #      rrqm  wrqm   r/s   w/s   rsec wsec
+    fmt = "%8.2f %8.2f %7.2f %7.2f %8.2f %8.2f "
+    #      rqsz  qusz await r_await w_await svctm %util
+    fmt += "%8.2f %8.2f %7.2f %7.2f %7.2f %6.2f %6.2f"
+    fmt %= (
+        _scale(stp.rd_merges, stc.rd_merges, itv),
+        _scale(stp.wr_merges, stc.wr_merges, itv),
+        _scale(stp.rd_ios, stc.rd_ios, itv),
+        _scale(stp.wr_ios, stc.wr_ios, itv),
+        _scale(stp.rd_sectors, stc.rd_sectors, itv) / fctr,
+        _scale(stp.wr_sectors, stc.wr_sectors, itv) / fctr,
+        arqsz,
+        _scale(stp.rq_ticks, stc.rq_ticks, itv) / 1000.0,
+        await,
+        r_await,
+        w_await,
+        svctm,
+        util / 10.0
+    )
+    _log_info(dev_str + fmt)
+    _log_info(stc.area_id)
+
+
+def _show_stats_basic(dev, itv, fctr, stc, stp):
+    """ Show statistics in the basic iostat formati. """
+    dev_str = "%-13s" % dev
+    rd_sec = stc.rd_sectors - stp.rd_sectors
+    wr_sec = stc.wr_sectors - stp.wr_sectors
+    #       tps   rsec/s wsec/s rsec   wsec
+    fmt = " %8.2f %12.2f %12.2f %10u %10u"
+    fmt %= (
+        _scale(stp.rd_ios + stp.wr_ios, stc.rd_ios + stc.wr_ios, itv),
+        _scale(stp.rd_sectors, stc.rd_sectors, itv) / fctr,
+        _scale(stp.wr_sectors, stc.wr_sectors, itv) / fctr,
+        rd_sec / fctr,
+        wr_sec / fctr
+    )
+    _log_info(dev_str + fmt)
+    _log_info(stc.area_id)
+
+
+def _show_cpu_stats(itv, cpc, cpp):
+    """ Show cpu statistics in the iostat format. """
+    if cpc.cpu_idle < cpp.cpu_idle:
+        idle = _scale_percent(cpp.cpu_idle, cpc.cpu_idle, itv)
+    else:
+        idle = 0.0
+    hdr = "avg-cpu:  %user   %nice %system %iowait  %steal   %idle"
+    fmt = "         %6.2f  %6.2f  %6.2f  %6.2f  %6.2f  %6.2f\n"
+    fmt %= (
+        _scale_percent(cpp.cpu_user, cpc.cpu_user, itv),
+        _scale_percent(cpp.cpu_nice, cpc.cpu_nice, itv),
+        _scale_percent(cpp.cpu_sys + cpp.cpu_softirq + cpp.cpu_hardirq,
+                       cpc.cpu_sys + cpc.cpu_softirq + cpc.cpu_hardirq, itv),
+        _scale_percent(cpp.cpu_iowait, cpc.cpu_iowait, itv),
+        _scale_percent(cpp.cpu_steal, cpc.cpu_steal, itv),
+        idle
+    )
+    _log_info(hdr)
+    _log_info(fmt)
+
+
+def _get_mem_stats(curr):
+    """ Return simple dm-statistics memory usage information as a string, """
+    if _display_mb:
+        _u = "MB"
+        fctr = (2 ** 20) * 1.0
+    elif _display_kb:
+        _u = "KB"
+        fctr = (2 ** 10) * 1.0
+    else:
+        _u = "B"
+        fctr = 1
+
+    mem_total = _memstats[curr][0] / fctr
+    mem_alloc = _memstats[curr][1] / fctr
+    mem_change = (_memstats[curr][1] - _memstats[not curr][1]) / fctr
+    mem_percent = (mem_alloc * 100.0) / mem_total
+    mem_str = "stats bytes allocated: %2.2f%s/%2.2f%s (%2.2f%% +/- %2.2f%s)"
+    mem_str %= (mem_alloc, _u, mem_total, _u, mem_percent, mem_change, _u)
+    return mem_str
+
+
+def _show_stats(regions, rectime):
+    """ Print the time, CPU, memory, and device reports (if enabled). """
+    def _get_interval(prev_uptime, curr_uptime):
+        itv = curr_uptime - prev_uptime
+        if not itv:
+            itv = 1  # Paranoia checking
+        return itv
+
+    itv = _get_interval(_uptime[not _curr], _uptime[_curr])
+
+    max_itv = HZ + 1
+    if itv > max_itv:
+        _log_warn("interval exceeded %dms: %d" % (max_itv, itv))
+
+    mem_str = _get_mem_stats(_curr)
+
+    if _timestamp:
+        if _display_iso:
+            timestamp = time.strftime("%FT%T%z", rectime)
+        else:
+            timestamp = time.strftime("%x %X", rectime)
+        _log_info(timestamp + "       " + mem_str)
+    else:
+        _log_info(mem_str)
+
+    if _show_cpu:
+        _show_cpu_stats(itv, _cpustats[_curr], _cpustats[not _curr])
+
+    fctr = _show_header()
+    for dev in regions.keys():
+        for region in regions[dev]:
+            area_list = _iostats[_curr][dev][region].keys()
+            area_list.sort()
+            for area in area_list:
+                stc = _iostats[_curr][dev][region][area]
+                stp = _iostats[not _curr][dev][region][area]
+                if _extended:
+                    _show_stats_ext(dev, itv, fctr, stc, stp)
+                else:
+                    _show_stats_basic(dev, itv, fctr, stc, stp)
+    _log_info("")
+
+
+def _read_dev_stats(dev, regions, curr):
+    """ Read performance counters for device dev into the iostats slot
+    pointed to by curr."""
+    _iostats[curr][dev] = dict()
+    for region in regions[dev]:
+
+        _iostats[curr][dev][region] = dict()
+
+        raw_stats = _dm_stats_print(dev, region)
+        if not raw_stats:
+            _log_error("Error: failed to retrieve counters for '%s'" % dev)
+            _exit(1)
+
+        for line in raw_stats.splitlines():
+            area_id = line.split()[0]
+            iostats = IoStats(line)
+            _iostats[curr][dev][region][area_id] = iostats
+
+
+def _read_cpu_stats(curr):
+    """ Read CPU performance counters into the slot pointed to by curr. """
+    try:
+        _cpustats[curr] = CpuStats()
+    except:
+        _log_error("Error: failed to read cpu counters from '%s'" % PROC_STAT)
+        _exit(1)
+
+
+def _read_mem_stats(curr):
+    """ Read memory performance counters into the slot pointed to by curr. """
+    memtotal = 0
+    stats_bytes_allocated = 0
+    try:
+        for line in open(PROC_MEMINFO, 'r').readlines():
+            if line.startswith("MemTotal"):
+                value = line.split()[1]
+                break
+        memtotal = int(value) * 1024
+    except:
+        _log_error("Error: failed to read memtotal from '%s'" % PROC_MEMINFO)
+        _exit(1)
+    try:
+        dm_stat_bytes_path = os.path.join(DM_MOD_PARAM_PATH, DM_ALLOCED_BYTES)
+        line = open(dm_stat_bytes_path, 'r').read()
+        (value) = line.split()[0]
+        stats_bytes_allocated = int(value)
+    except Exception as e:
+        msg = "Error: failed to read current allocated bytes from '%s' (%s)"
+        _log_error(msg % (DM_ALLOCED_BYTES, e))
+        _exit(1)
+    _memstats[curr] = (memtotal, stats_bytes_allocated)
+
+
+def _init_mem_stats(curr):
+    """ Initialise the not-current memory counters slot. """
+    _read_mem_stats(not curr)
+
+
+def _init_cpu_stats(curr):
+    """ Initialise the not-current cpu counters slot. """
+    _read_cpu_stats(not curr)
+
+
+def _read_uptime(curr):
+    """ Read uptime into the slot pointed to by curr. """
+    try:
+        with open(PROC_UPTIME, 'r') as f:
+            s_uptime = f.read().split()[0]
+            # samples are in ticks
+            uptime = float(s_uptime) * HZ
+    except:
+        _log_error("Error: failed to read uptime from '%s'" % PROC_UPTIME)
+        _exit(1)
+    _uptime[curr] = uptime
+
+
+def _init_uptime(curr):
+    """ Initialise the not-current uptime counter slot. """
+    _read_uptime(not curr)
+
+
+def _read_stats(regions, curr):
+    """ Read CPU, memory, and device performance counters. """
+    _log_debug("_read_stats")
+    _read_cpu_stats(curr)
+    _read_mem_stats(curr)
+    for dev in regions.keys():
+        _read_dev_stats(dev, regions, curr)
+
+
+def _show_header():
+    """ Display the device report header. """
+    fctr = 1
+    if _extended:
+        hdr = "Device:         rrqm/s   wrqm/s     r/s     w/s"
+        if _display_mb:
+            hdr += "    rMB/s    wMB/s"
+            fctr = 2048
+        elif _display_kb:
+            hdr += "    rkB/s    wkB/s"
+            fctr = 2
+        else:
+            hdr += "   rsec/s   wsec/s"
+        hdr += " avgrq-sz avgqu-sz   await r_await w_await  svctm  %util"
+    else:
+        hdr = "Device:            tps"
+        if _display_mb:
+            hdr += "    MB_read/s    MB_wrtn/s    MB_read    MB_wrtn"
+            fctr = 2048
+        elif _display_kb:
+            hdr += "    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn"
+            fctr = 2
+        else:
+            hdr += "   Blk_read/s   Blk_wrtn/s   Blk_read   Blk_wrtn"
+    _log_info(hdr)
+    return fctr
+
+
+def _show_sys_header(rectime):
+    """ Display the system banner. """
+    _uname = os.uname()
+    nr_cpus = os.sysconf("SC_NPROCESSORS_ONLN")
+    if not rectime:
+        curr_date = "?/?/?"
+    elif _display_iso:
+        curr_date = time.strftime("%Y-%m-%d", rectime)
+    else:
+        curr_date = time.strftime("%x", rectime)
+    _hdrinfo = (_uname[0], _uname[2], _uname[1], curr_date, _uname[4], nr_cpus)
+    _log_info("%s %s (%s) \t%s \t_%s_\t(%d CPU)\n" % _hdrinfo)
+
+
+def _main_loop():
+    """ Display the system header and start the main loop. """
+    global _count, _curr
+    rectime = time.localtime()
+    _show_sys_header(rectime)
+    while _count:
+        _read_stats(_regions, _curr)
+        rectime = time.localtime()
+        _read_uptime(_curr)
+        _show_stats(_regions, rectime)
+        _count -= 1
+        try:
+            signal.pause()
+            _curr ^= 1
+        except KeyboardInterrupt:
+            break
+    _remove_regions(_regions)
+
+
+# register the list of regions with the device-mapper
+def _create_regions(devices):
+    """ Create regions according to devices and command-line options.
+    The global _regions dictionary is indexed by device name and is
+    populated with region dictionaries indexed by region ID. Each
+    region dictionary is indexed by area_ids in the form 'start+length'
+    and contains an IoStat object containing counters for that area_id. """
+    def _init_counters(dev, regions):
+        _regions[dev] = regions
+        _read_dev_stats(dev, _regions, not _curr)
+
+    def _init_one_region(dev, region):
+        if not region:
+            msg = "Error: failed to create statistics region for '%s'"
+            _log_error(msg % dev)
+            _exit(1)
+        return _init_counters(dev, {region: dict()})
+
+    if _segments:
+        # @stats_create foreach segment
+        # e.g. for a 3-segment device:
+        # |    0..1023    |   1024..2047   | 2048..2099 |
+        # @stats_create 0+1024 $ourid $ouraux
+        # @stats_create 1024+1024 $ourid $ouraux
+        # @stats_create 2048+52 $ourid $ouraux
+        pass
+
+    elif _extents:
+        # @stats_create - $ext_size $ourid $ouraux
+        pass
+
+    elif _areas:
+        # @stats_create - $area_size $ourid $ouraux
+        for dev in devices:
+            step = "%d" % _areas
+            region = _dm_stats_create(dev, "-", step, _lvmstat_id, "")
+            _init_one_region(dev, region)
+
+    elif _nr_areas:
+        # @stats_create - /$nr_areas $ourid $ouraux
+        for dev in devices:
+            step = "/%d" % _nr_areas
+            region = _dm_stats_create(dev, "-", step, _lvmstat_id, "")
+            _init_one_region(dev, region)
+
+    else:
+        # default - whole device stats
+        # @stats_create - /1 $ourid $ouraux
+        for dev in devices:
+            region = _dm_stats_create(dev, "-", "/1", _lvmstat_id, "")
+            _init_one_region(dev, region)
+
+
+def _remove_regions(regions):
+    """ Remove a set of regions registered with the device-mapper. """
+    for dev in regions.keys():
+        for region in regions[dev]:
+            _dm_stats_delete(dev, region)
+
+
+def _validate_lv_name(lv_name):
+    """ This function _should_ accept a LV name given on the command line
+    and test that it is valid. Names may be in VG/LV, VG-LV, /dev/VG/LV,
+    /dev/mapper/VG-LV format. """
+    return lv_name != "broken"
+
+
+def _parse_size_arg(arg, name):
+    """ Parse a size argument with optional units suffix. All size values
+    must be a multiple of the sector size (512 bytes).
+
+    Suffixes:
+      b - bytes        1
+      s - sectors    512
+      k - kibibytes 1024
+      m - mebibytes 1024^2
+      g - gibibytes 1024^3
+      t - tebibytes 1024^4
+      p - pebibytes 1024^5
+      e - ebibytes  1024^6
+
+    """
+    suffixes = "kmgtpebs"
+    msg = None
+    val = -1
+    s = arg[-1:]
+    if s.isdigit():
+        arg = arg + 'b'
+        s = 'b'
+    s = s.lower()
+    if s in suffixes and arg[:-1].isdigit():
+        val = int(arg[:-1])
+        if s == 's':
+            val *= S_SIZE
+        elif s == 'b':
+            if val % S_SIZE:
+                msg = "Could not parse '%s': must be a multiple of 512." % name
+        else:
+            while not s == suffixes[0]:
+                val *= 1024
+                if not len(suffixes) or s == suffixes[0]:
+                    break
+                suffixes = suffixes[1:]
+        print("val: %d" % val)
+    else:
+        if s not in suffixes:
+            msg = "Could not parse '%s': unknown unit suffix: '%s'" % (name, s)
+        else:
+            msg = "Could not parse '%s': invalid number: %s" % (name, arg[:-1])
+
+    if msg:
+        _log_error(msg)
+        _exit(1)
+    return val
+
+
+def _parse_args(argv):
+    """Parse command line options and arguments and assign values to global
+    variables. """
+    global _devices, _interval, _count
+    global _display_kb, _display_mb, _display_iso, _timestamp
+    global _extended, _segments, _areas, _nr_areas, _show_cpu
+    global _debug
+    _s = "store"
+    _st = "store_true"
+    units_help = "Display statistics in %s per second."
+    region_help = "Display statistics by %s."
+    ext_help = "Display extended statistics."
+
+    # options table contains 6-tuples of optparse-style options in the format:
+    #  ("-short", "--long", "dest", "help", "type", "action")
+    opt_tab = [
+        ("-c", "--cpu", "cpu", "Display the CPU utilization report.",
+               None, _st),
+        ("-D", None, "debug", "Display debugging information", None, _st),
+        ("-x", "--extended", "extended", ext_help, None, _st),
+        ("-s", "--segments", "segments", region_help % "segments", None, _st),
+        ("-e", "--extents", "extents", region_help % "extents", None, _st),
+        ("-a", "--areas", "size", region_help % "areas of size SIZE",
+               "string", _s),
+        ("-n", "--nr-areas", "nr_areas", region_help % "NR_AREAS areas",
+               "int", _s),
+        ("-k", "--kilobytes", "kbytes", units_help % "kilobytes", None, _st),
+        ("-m", "--megabytes", "mbytes", units_help % "megabytes", None, _st),
+        ("-t", "--times", "times", "Print the time for each report", None, _st)
+    ]
+    parser = OptionParser()
+    f = lambda (s, l, d, h, t, a):\
+        parser.add_option(s, l, dest=d, help=h, type=t, action=a)
+    map(f, opt_tab)
+    (options, args) = parser.parse_args(argv[1:])
+
+    # set immediately to allow debugging in arg parsing
+    _debug = options.debug
+
+    _extended = options.extended
+    _segments = options.segments
+
+    if options.size:
+        # dm area sizes are in sectors
+        _areas = _parse_size_arg(options.size, "area size") / S_SIZE
+
+    _nr_areas = options.nr_areas
+
+    _display_kb = options.kbytes
+    _display_mb = options.mbytes
+
+    _timestamp = options.times
+    _display_iso = ENV_TIME_FMT in os.environ and\
+        os.environ[ENV_TIME_FMT] == K_ISO
+
+    _show_cpu = options.cpu
+
+    if not (_display_kb or _display_mb):
+        if "POSIXLY_CORRECT" not in os.environ:
+            _display_kb = True
+
+    for dev in args:
+        if not _validate_lv_name(dev):
+            msg = "'%s' is not a valid logical volume name"
+            _log_error(msg % dev)
+            _exit(1)
+
+    def _validate_int_arg(arg, name):
+        """ Attempt to convert a string argument to integer. """
+        try:
+            _v = int(arg)
+        except ValueError:
+            msg = "Invalid argument: %s must be a base 10 integer"
+            _log_error(msg % name)
+            _exit(1)
+        return _v
+
+    # do we have an interval or count argument?
+    if args[-1:][0][0].isdigit():
+        # do we also have a count?
+        if args[-2:-1][0][0].isdigit():
+            _count = _validate_int_arg(args[-1:][0], "count")
+            args = args[:-1]
+        _interval = _validate_int_arg(args[-1:][0], "interval")
+        args = args[:-1]
+
+    _devices = args
+    _log_debug("options: %s" % options)
+    _log_debug("args: %s" % args)
+
+
+def main(argv):
+    """ Main entry point. Set locale, parse arguments, initialise stats regions,
+    CPU, memory, and uptime counters and start the alarm clock running. """
+    # use the default locale from the environment
+    locale.setlocale(locale.LC_ALL, "")
+    _parse_args(argv)
+    _create_regions(_devices)
+    _init_cpu_stats(_curr)
+    _init_mem_stats(_curr)
+    _init_uptime(_curr)
+    _set_alarm(_interval)
+    try:
+        _main_loop()
+    except KeyboardInterrupt:
+        return
+
+
+if __name__ == '__main__':
+    """ Entry point if called as a script. """
+    main(sys.argv)

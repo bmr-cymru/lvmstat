@@ -1,0 +1,134 @@
+LVM / device-mapper statistics
+==============================
+
+lvmstats is a simple userspace tool to configure, control, and report
+device-mapper IO statistics.
+
+Usage
+=====
+
+  Usage: lvmstat [options] [ device [...] | ALL ] [ interval [ count ] ]
+
+  -h, --help            show this help message and exit
+  -c, --cpu             Display the CPU utilization report.
+  -x, --extended        Display extended statistics.
+  -s, --segments        Display statistics by segments.
+  -e, --extents         Display statistics by extents.
+  -a SIZE, --areas=SIZE
+                        Display statistics by areas of size SIZE.
+  -n NR_AREAS, --nr-areas=NR_AREAS
+                        Display statistics by NR_AREAS areas.
+  -k, --kilobytes       Display statistics in kilobytes per second.
+  -m, --megabytes       Display statistics in megabytes per second.
+  -t, --times           Print the time for each report
+  -D                    Display debugging information
+
+
+Output
+======
+
+Device Utilization Report
+
+The output of lvmstat mimics the output of the iostat program allowing
+the reuse of existing iostat parsing and graphing tools.
+
+The extended output format is as follows:
+
+The device report provides statistics for each configured device region.
+The device-mapper devices for which statistics are to be displayed may
+be entered on the command line.  If no device nor partition is entered,
+then statistics are displayed for every device-mapper device used by the
+system.  Transfer rates are  shown in 1K  blocks by default, unless the
+environment variable POSIXLY_CORRECT is set, in which case 512-byte
+blocks are used.  The report may show the following fields, depending on
+the flags used:
+
+    Device:
+           This column gives the device (or partition) name as
+           listed in the /dev directory.
+
+    tps
+           Indicate the number of transfers per second that
+           were issued to the device. A transfer is an I/O request to
+           the device. Multiple logical requests  can be combined into
+           a single I/O request to the device. A transfer is of
+           indeterminate size.
+
+    Blk_read/s (kB_read/s, MB_read/s)
+           Indicate  the  amount of data read from the device
+           expressed in a number of blocks (kilobytes, megabytes) per
+           second. Blocks are equivalent to sectors and therefore have
+           a size of 512 bytes.
+
+    Blk_wrtn/s (kB_wrtn/s, MB_wrtn/s)
+           Indicate the amount of data written to the device
+           expressed in a number of blocks (kilobytes, megabytes) per
+           second.
+
+    Blk_read (kB_read, MB_read)
+           The total number of blocks (kilobytes, megabytes)
+           read.
+
+    Blk_wrtn (kB_wrtn, MB_wrtn)
+           The total number of blocks (kilobytes, megabytes)
+           written.
+
+    rrqm/s
+           The number of read requests merged per second that
+           were queued to the device.
+
+    wrqm/s
+           The number of write requests merged per second that
+           were queued to the device.
+
+    r/s
+           The number (after merges) of read requests
+           completed per second for the device.
+
+    w/s
+           The number (after merges) of write requests
+           completed per second for the device.
+
+    rsec/s (rkB/s, rMB/s)
+           The number of sectors (kilobytes, megabytes) read
+           from the device per second.
+
+    wsec/s (wkB/s, wMB/s)
+           The number of sectors (kilobytes, megabytes)
+           written to the device per second.
+
+    avgrq-sz
+           The average size (in sectors) of the requests that
+           were issued to the device.
+
+    avgqu-sz
+           The average queue length of the requests that were
+           issued to the device.
+
+    await
+           The average time (in milliseconds) for I/O requests
+           issued to the device to be served. This includes the time
+           spent by the requests in queue  and  the time spent
+           servicing them.
+
+    r_await
+           The  average time (in milliseconds) for read
+           requests issued to the device to be served. This includes
+           the time spent by the requests in queue and the time spent
+           servicing them.
+
+    w_await
+           The average time (in milliseconds) for write
+           requests issued to the device to be served. This includes
+           the time spent by the requests in queue and the time spent
+           servicing them.
+
+    svctm
+           The  average  service  time  (in milliseconds) for
+           I/O requests that were issued to the device. FIXME: verify
+           accuracy of this derived metric for dm devices.
+
+    %util
+	   Percentage of CPU time during which I/O requests were issued
+           to the device (bandwidth utilization for the device). Device
+           saturation occurs when this value is close to 100%.

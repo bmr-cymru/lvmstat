@@ -809,7 +809,36 @@ def _create_regions(devices):
         # @stats_create 0+1024 $ourid $ouraux
         # @stats_create 1024+1024 $ourid $ouraux
         # @stats_create 2048+52 $ourid $ouraux
-        pass
+        lvs = lvm.lvs(segments=True)
+
+        if not lvs:
+            _log_error("Error: could not retrieve logical volume list")
+            _exit(1)
+
+        for dev in devices:
+            (vg_name, lv_name) = lvm.canonicalize_lv_name(dev)
+            vg_lv_name = "%s/%s" % (vg_name, lv_name)
+            if vg_lv_name not in lvs.keys():
+                _log_error("Error: could not get segment list for '%s'" % dev)
+                break
+
+            dev_regions = dict()
+            for segment in lvs[vg_lv_name][SEGMENTS]:
+                s_start = segment[SEG_START]
+                s_size = segment[SEG_SIZE]
+                s_str = "%d+%d" % (s_start, s_size)
+
+                _log_debug("creating segment for '%s', start=%d, size=%d"
+                           % (dev, s_start, s_size))
+
+                region = _dm_stats_create(dev, s_str, "/1", _lvmstat_id, "")
+                if not region:
+                    msg = "Error: failed to create statistics region for '%s'"
+                    _log_error(msg % dev)
+                    _exit(1)
+                dev_regions[region] = dict()
+            _init_counters(dev, dev_regions)
+
 
     elif _extents:
         # @stats_create - $ext_size $ourid $ouraux

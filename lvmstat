@@ -928,7 +928,6 @@ def _parse_size_arg(arg, name, sectors=False):
                 if not len(suffixes) or s == suffixes[0]:
                     break
                 suffixes = suffixes[1:]
-        print("val: %d" % val)
     else:
         if s not in suffixes:
             msg = "Could not parse '%s': unknown unit suffix: '%s'" % (name, s)

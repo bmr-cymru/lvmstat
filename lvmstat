@@ -841,8 +841,20 @@ def _create_regions(devices):
             _init_counters(dev, dev_regions)
 
     elif _extents:
-        # @stats_create - $ext_size $ourid $ouraux
-        pass
+        # @stats_create - $ext_size*$ext_per_area $ourid $ouraux
+        lvs = lvm.lvs()
+        if not lvs:
+            _log_error("Error: could not retrieve logical volume list")
+            _exit(1)
+
+        for dev in devices:
+            (vg_name, lv_name) = lvm.canonicalize_lv_name(dev)
+            vg_lv_name = "%s/%s" % (vg_name, lv_name)
+            vg_extent_size = lvs[vg_lv_name][VG_EXTENT_SIZE]
+            extents_per_area = _extents
+            step = "%d" % (vg_extent_size * extents_per_area)
+            region = _dm_stats_create(dev, "-", step, _lvmstat_id, "")
+            _init_one_region(dev, region)
 
     elif _areas:
         # @stats_create - $area_size $ourid $ouraux
@@ -938,7 +950,7 @@ def _parse_args(argv):
     variables. """
     global _devices, _interval, _count
     global _display_kb, _display_mb, _display_iso, _timestamp
-    global _extended, _segments, _areas, _nr_areas, _show_cpu
+    global _extended, _segments, _extents, _areas, _nr_areas, _show_cpu
     global _debug
     _s = "store"
     _st = "store_true"
@@ -954,7 +966,7 @@ def _parse_args(argv):
         ("-D", None, "debug", "Display debugging information", None, _st),
         ("-x", "--extended", "extended", ext_help, None, _st),
         ("-s", "--segments", "segments", region_help % "segments", None, _st),
-        ("-e", "--extents", "extents", region_help % "extents", "string", _st),
+        ("-e", "--extents", "extents", region_help % "extents", "string", _s),
         ("-a", "--areas", "size", region_help % "areas of size SIZE",
                "string", _s),
         ("-n", "--nr-areas", "nr_areas", region_help % "NR_AREAS areas",

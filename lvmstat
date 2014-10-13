@@ -840,7 +840,6 @@ def _create_regions(devices):
                 dev_regions[region] = dict()
             _init_counters(dev, dev_regions)
 
-
     elif _extents:
         # @stats_create - $ext_size $ourid $ouraux
         pass
@@ -912,7 +911,7 @@ def _parse_size_arg(arg, name):
             if val % S_SIZE:
                 msg = "Could not parse '%s': must be a multiple of 512." % name
         else:
-            while not s == suffixes[0]:
+            while True:
                 val *= 1024
                 if not len(suffixes) or s == suffixes[0]:
                     break
@@ -926,7 +925,7 @@ def _parse_size_arg(arg, name):
 
     if msg:
         _log_error(msg)
-        _exit(1)
+        return -1
     return val
 
 
@@ -975,6 +974,8 @@ def _parse_args(argv):
     if options.size:
         # dm area sizes are in sectors
         _areas = _parse_size_arg(options.size, "area size") / S_SIZE
+        if _areas < 0:
+            _exit(1)
 
     _nr_areas = options.nr_areas
 

@@ -880,7 +880,7 @@ def _validate_lv_name(lv_name):
     return lv_name != "broken"
 
 
-def _parse_size_arg(arg, name):
+def _parse_size_arg(arg, name, sectors=False):
     """ Parse a size argument with optional units suffix. All size values
     must be a multiple of the sector size (512 bytes).
 
@@ -908,7 +908,7 @@ def _parse_size_arg(arg, name):
         if s == 's':
             val *= S_SIZE
         elif s == 'b':
-            if val % S_SIZE:
+            if sectors and val % S_SIZE:
                 msg = "Could not parse '%s': must be a multiple of 512." % name
         else:
             while True:
@@ -927,6 +927,10 @@ def _parse_size_arg(arg, name):
         _log_error(msg)
         return -1
     return val
+
+
+def _parse_sectors_arg(arg, name):
+    return _parse_size_arg(arg, name, sectors=True) / S_SIZE
 
 
 def _parse_args(argv):
@@ -950,7 +954,7 @@ def _parse_args(argv):
         ("-D", None, "debug", "Display debugging information", None, _st),
         ("-x", "--extended", "extended", ext_help, None, _st),
         ("-s", "--segments", "segments", region_help % "segments", None, _st),
-        ("-e", "--extents", "extents", region_help % "extents", None, _st),
+        ("-e", "--extents", "extents", region_help % "extents", "string", _st),
         ("-a", "--areas", "size", region_help % "areas of size SIZE",
                "string", _s),
         ("-n", "--nr-areas", "nr_areas", region_help % "NR_AREAS areas",
@@ -973,8 +977,13 @@ def _parse_args(argv):
 
     if options.size:
         # dm area sizes are in sectors
-        _areas = _parse_size_arg(options.size, "area size") / S_SIZE
+        _areas = _parse_sectors_arg(options.size, "area size")
         if _areas < 0:
+            _exit(1)
+
+    if options.extents:
+        _extents = _parse_size_arg(options.extents, "extents")
+        if _extents < 0:
             _exit(1)
 
     _nr_areas = options.nr_areas

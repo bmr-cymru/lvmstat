@@ -442,7 +442,7 @@ class Lvm(object):
             if active and not self.lv_is_active(res[vg_lv_name]):
                 return False
 
-        return (vg_name, lv_name)
+        return vg_lv_name
 
 
 lvm = Lvm()
@@ -817,8 +817,7 @@ def _create_regions(devices):
             _exit(1)
 
         for dev in devices:
-            (vg_name, lv_name) = lvm.canonicalize_lv_name(dev)
-            vg_lv_name = "%s/%s" % (vg_name, lv_name)
+            vg_lv_name = lvm.canonicalize_lv_name(dev)
             if vg_lv_name not in lvs.keys():
                 _log_error("Error: could not get segment list for '%s'" % dev)
                 break
@@ -848,8 +847,7 @@ def _create_regions(devices):
             _exit(1)
 
         for dev in devices:
-            (vg_name, lv_name) = lvm.canonicalize_lv_name(dev)
-            vg_lv_name = "%s/%s" % (vg_name, lv_name)
+            vg_lv_name = lvm.canonicalize_lv_name(dev)
             vg_extent_size = lvs[vg_lv_name][VG_EXTENT_SIZE]
             extents_per_area = _extents
             step = "%d" % (vg_extent_size * extents_per_area)

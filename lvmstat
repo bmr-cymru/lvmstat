@@ -357,6 +357,7 @@ LV_SIZE = "lv_size"
 
 # VG fields
 VG_NAME = "vg_name"
+VG_EXTENT_SIZE = "vg_extent_size"
 
 # Segment fields
 SEGMENTS = "segments"
@@ -373,7 +374,7 @@ class Lvm(object):
         return _shell_out(cmd)
 
     def lvs(self, vgname=None, lvname=None, segments=False):
-        LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE ]
+        LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE ]
         cmd = "lvs --units s --noheadings"
         fields = "-o " + ",".join(LVS_FIELDS)
         if segments:
@@ -383,9 +384,8 @@ class Lvm(object):
         cmd += " " + fields
         if vgname and lvname:
             cmd += " %s/%s" % (vgname, lvname)
-        if vgname:
+        elif vgname:
             cmd += " %s" % vgname
-        _log_debug("calling: %s" % cmd)
         output = self._run_command(cmd)
         if not output:
             return False
@@ -403,13 +403,14 @@ class Lvm(object):
                 _lvs[vg_lv_name][VG_NAME] = fields[1]
                 _lvs[vg_lv_name][LV_ATTR] = fields[2]
                 _lvs[vg_lv_name][LV_SIZE] = int(fields[3].strip("S"))
+                _lvs[vg_lv_name][VG_EXTENT_SIZE] = int(fields[4].strip("S"))
             if segments:
-                if "segments" not in _lvs[vg_lv_name].keys():
+                if SEGMENTS not in _lvs[vg_lv_name].keys():
                     _lvs[vg_lv_name][SEGMENTS] = []
                 seg = dict()
-                seg[SEGTYPE] = fields[4]
-                seg[SEG_SIZE] = int(fields[5].strip("S"))
-                seg[SEG_START] = int(fields[6].strip("S"))
+                seg[SEGTYPE] = fields[5]
+                seg[SEG_SIZE] = int(fields[6].strip("S"))
+                seg[SEG_START] = int(fields[7].strip("S"))
                 _lvs[vg_lv_name][SEGMENTS].append(seg)
         return _lvs
 

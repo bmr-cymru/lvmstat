@@ -67,7 +67,7 @@ _uptime = [0.0, 0.0]
 _interval = 1
 
 # count of stats reports to print
-_count = 100
+_count = 1
 
 # boolean flags controlling report formatting
 
@@ -966,7 +966,7 @@ def _parse_sectors_arg(arg, name):
     return _parse_size_arg(arg, name, sectors=True) / S_SIZE
 
 
-def _parse_args(argv):
+def _lvstat_parse_args(argv):
     """Parse command line options and arguments and assign values to global
     variables. """
     global _devices, _interval, _count
@@ -1041,12 +1041,6 @@ def _parse_args(argv):
         if "POSIXLY_CORRECT" not in os.environ:
             _display_kb = True
 
-    for dev in args:
-        if not _validate_lv_name(dev):
-            msg = "'%s' is not a valid logical volume name"
-            _log_error(msg % dev)
-            _exit(1)
-
     def _validate_int_arg(arg, name):
         """ Attempt to convert a string argument to integer. """
         try:
@@ -1057,6 +1051,10 @@ def _parse_args(argv):
             _exit(1)
         return _v
 
+    if not(len(args)):
+        _devices = []
+        return
+
     # do we have an interval or count argument?
     if args[-1:][0][0].isdigit():
         # do we also have a count?
@@ -1066,26 +1064,64 @@ def _parse_args(argv):
         _interval = _validate_int_arg(args[-1:][0], "interval")
         args = args[:-1]
 
+    for dev in args:
+        if not _validate_lv_name(dev):
+            msg = "'%s' is not a valid logical volume name"
+            _log_error(msg % dev)
+            _exit(1)
+
     _devices = args
-    _log_debug("options: %s" % options)
-    _log_debug("args: %s" % args)
 
 
-def main(argv):
-    """ Main entry point. Set locale, parse arguments, initialise stats regions,
-    CPU, memory, and uptime counters and start the alarm clock running. """
-    # use the default locale from the environment
-    locale.setlocale(locale.LC_ALL, "")
-    _parse_args(argv)
+#pvstat_desc = "display iostat reports by physical volume"
+#vgstat_desc = "display iostat reports by volume group"
+lvstat_desc = "display iostat reports by logcal volume"
+commands = [ "lvstat" ]
+
+
+def lvstat_main(argv):
+    """ Main entry point for lvstat. Parse arguments, initialise stats
+    regions, CPU, memory, and uptime counters and start the alarm clock
+    running. """
+    _lvstat_parse_args(argv)
     _create_regions(_devices)
     _init_cpu_stats(_curr)
     _init_mem_stats(_curr)
     _init_uptime(_curr)
     _set_alarm(_interval)
+    _main_loop()
+
+
+def _lvmstat_usage():
+    _log_error("Usage: lvmstat [command] [options]")
+    _log_error("")
+    _log_error("  Available lvmstat commands:")
+    _log_error("  Use 'lvmstat <command> -h/--help' for more information")
+    _log_error("")
+    for cmd in commands:
+        _log_error("  %-15s %s" % (cmd, globals()["%s_desc" % cmd]))
+    _log_error("")
+
+
+def main(argv):
+    """ lvmstat - dispatch a command or show usage. """
+    # use the default locale from the environment
+    locale.setlocale(locale.LC_ALL, "")
+    if argv[0].endswith('lvmstat'):
+        argv = argv[1:]
+    cmd = os.path.basename(argv[0])
+    if cmd not in commands:
+        _log_error("Unknown command '%s'" % cmd)
+        _lvmstat_usage()
+        _exit(1)
     try:
-        _main_loop()
-    except KeyboardInterrupt:
-        return
+        # call cmd's main() function
+        globals()["%s_main" % cmd](argv)
+    except KeyboardInterrupt as e:
+        return 0
+    except Exception as e:
+        _log_error("Unhandled exception: %s" % e)
+        _exit(1)
 
 
 if __name__ == '__main__':

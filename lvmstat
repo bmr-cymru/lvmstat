@@ -223,7 +223,7 @@ class IoStats(object):
 
 
 def _log_error(msg):
-    print(msg, file=sys.stderr)
+    print("Error: " + msg, file=sys.stderr)
 
 
 def _log_warn(msg):
@@ -647,7 +647,7 @@ def _read_dev_stats(dev, regions, curr):
 
         raw_stats = _dm_stats_print(dev, region)
         if not raw_stats:
-            _log_error("Error: failed to retrieve counters for '%s'" % dev)
+            _log_error("failed to retrieve counters for '%s'" % dev)
             _exit(1)
 
         for line in raw_stats.splitlines():
@@ -661,7 +661,7 @@ def _read_cpu_stats(curr):
     try:
         _cpustats[curr] = CpuStats()
     except:
-        _log_error("Error: failed to read cpu counters from '%s'" % PROC_STAT)
+        _log_error("failed to read cpu counters from '%s'" % PROC_STAT)
         _exit(1)
 
 
@@ -676,7 +676,7 @@ def _read_mem_stats(curr):
                 break
         memtotal = int(value) * 1024
     except:
-        _log_error("Error: failed to read memtotal from '%s'" % PROC_MEMINFO)
+        _log_error("failed to read memtotal from '%s'" % PROC_MEMINFO)
         _exit(1)
     try:
         dm_stat_bytes_path = os.path.join(DM_MOD_PARAM_PATH, DM_ALLOCED_BYTES)
@@ -684,7 +684,7 @@ def _read_mem_stats(curr):
         (value) = line.split()[0]
         stats_bytes_allocated = int(value)
     except Exception as e:
-        msg = "Error: failed to read current allocated bytes from '%s' (%s)"
+        msg = "failed to read current allocated bytes from '%s' (%s)"
         _log_error(msg % (DM_ALLOCED_BYTES, e))
         _exit(1)
     _memstats[curr] = (memtotal, stats_bytes_allocated)
@@ -708,7 +708,7 @@ def _read_uptime(curr):
             # samples are in ticks
             uptime = float(s_uptime) * HZ
     except:
-        _log_error("Error: failed to read uptime from '%s'" % PROC_UPTIME)
+        _log_error("failed to read uptime from '%s'" % PROC_UPTIME)
         _exit(1)
     _uptime[curr] = uptime
 
@@ -815,7 +815,7 @@ def _create_region(dev, r_start, r_len, a_size=None, a_step=None, aux=""):
     s_step = "%d" % a_size if a_size else "/%d" % a_step if a_step else "/1"
     region = _dm_stats_create(dev, s_range, s_step, _lvmstat_id, aux)
     if not region:
-        msg = "Error: failed to create statistics region for '%s'"
+        msg = "failed to create statistics region for '%s'"
         _log_error(msg % dev)
         _exit(1)
     return region
@@ -841,7 +841,7 @@ def _create_regions(devices):
 
     lvs = lvm.lvs(segments=True)
     if not lvs:
-        _log_error("Error: could not retrieve logical volume list")
+        _log_error("could not retrieve logical volume list")
         _exit(1)
 
     if not _segments:
@@ -869,7 +869,7 @@ def _create_regions(devices):
     for dev in devices:
         lv = lvm.canonicalize_lv_name(dev)
         if lv not in lvs.keys():
-            _log_error("Error: could not get LV information for '%s'" % dev)
+            _log_error("could not get LV information for '%s'" % dev)
             _exit(1)
 
         # @stats_create foreach segment
@@ -936,7 +936,7 @@ def _parse_size_arg(arg, name, sectors=False):
             val *= S_SIZE
         elif s == 'b':
             if sectors and val % S_SIZE:
-                msg = "Could not parse '%s': must be a multiple of 512." % name
+                msg = "could not parse '%s': must be a multiple of 512." % name
         else:
             while True:
                 val *= 1024
@@ -945,9 +945,9 @@ def _parse_size_arg(arg, name, sectors=False):
                 suffixes = suffixes[1:]
     else:
         if s not in suffixes:
-            msg = "Could not parse '%s': unknown unit suffix: '%s'" % (name, s)
+            msg = "could not parse '%s'. Unknown unit suffix: '%s'" % (name, s)
         else:
-            msg = "Could not parse '%s': invalid number: %s" % (name, arg[:-1])
+            msg = "could not parse '%s'. Invalid number: %s" % (name, arg[:-1])
 
     if msg:
         _log_error(msg)
@@ -1001,7 +1001,7 @@ def _lvstat_parse_args(argv):
     _extended = options.extended
     _segments = options.segments
 
-    areas_msg = "Can only use one of --areas, --nr-areas and --extents."
+    areas_msg = "can only use one of --areas, --nr-areas and --extents."
     if options.size:
         if options.nr_areas or options.extents:
             _log_error(areas_msg)
@@ -1039,7 +1039,7 @@ def _lvstat_parse_args(argv):
         try:
             _v = int(arg)
         except ValueError:
-            msg = "Invalid argument: %s must be a base 10 integer"
+            msg = "%s must be a base 10 integer"
             _log_error(msg % name)
             _exit(1)
         return _v
@@ -1086,14 +1086,14 @@ def lvstat_main(argv):
 
 
 def _lvmstat_usage():
-    _log_error("Usage: lvmstat [command] [options]")
-    _log_error("")
-    _log_error("  Available lvmstat commands:")
-    _log_error("  Use 'lvmstat <command> -h/--help' for more information")
-    _log_error("")
+    _log_info("Usage: lvmstat [command] [options]")
+    _log_info("")
+    _log_info("  Available lvmstat commands:")
+    _log_info("  Use 'lvmstat <command> -h/--help' for more information")
+    _log_info("")
     for cmd in commands:
-        _log_error("  %-15s %s" % (cmd, globals()["%s_desc" % cmd]))
-    _log_error("")
+        _log_info("  %-15s %s" % (cmd, globals()["%s_desc" % cmd]))
+    _log_info("")
 
 
 def main(argv):
@@ -1104,7 +1104,7 @@ def main(argv):
         argv = argv[1:]
     cmd = os.path.basename(argv[0])
     if cmd not in commands:
-        _log_error("Unknown command '%s'" % cmd)
+        _log_error("unknown command '%s'" % cmd)
         _lvmstat_usage()
         _exit(1)
     try:
@@ -1115,7 +1115,7 @@ def main(argv):
     except Exception as e:
         if _debug:
             raise
-        _log_error("Unhandled exception: %s" % e)
+        _log_error("%s" % e)
         _exit(1)
 
 

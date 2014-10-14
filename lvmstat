@@ -837,12 +837,20 @@ def _create_regions(devices):
 
     area_size = None
     step = None
-    lvs = None
     extents_per_area = None
+
+    lvs = lvm.lvs(segments=True)
+    if not lvs:
+        _log_error("Error: could not retrieve logical volume list")
+        _exit(1)
+
+    if not _segments:
+        for lv in lvs.keys():
+            # use whole device
+            lvs[lv][SEGMENTS] = [{SEG_START: 0, SEG_SIZE: 0}]
 
     if _extents:
         # @stats_create - $ext_size*$ext_per_area $ourid $ouraux
-        lvs = lvm.lvs()
         extents_per_area = _extents
         vg_extent_size = lvs[lv][VG_EXTENT_SIZE]
         area_size = vg_extent_size * extents_per_area
@@ -855,24 +863,8 @@ def _create_regions(devices):
         # @stats_create - /$nr_areas $ourid $ouraux
         step = _nr_areas
 
-    if _segments:
-    # @stats_create foreach segment
-    # e.g. for a 3-segment device:
-    # |    0..1023    |   1024..2047   | 2048..2099 |
-    # @stats_create 0+1024 $ourid $ouraux
-    # @stats_create 1024+1024 $ourid $ouraux
-    # @stats_create 2048+52 $ourid $ouraux
-        lvs = lvm.lvs(segments=True)
-    else:
-        if not lvs:
-            lvs = lvm.lvs()
-        for lv in lvs.keys():
-            # use whole device
-            lvs[lv][SEGMENTS] = [{SEG_START: 0, SEG_SIZE: 0}]
-
-    if not lvs:
-        _log_error("Error: could not retrieve logical volume list")
-        _exit(1)
+    if not devices:
+        devices = lvs.keys()
 
     for dev in devices:
         lv = lvm.canonicalize_lv_name(dev)
@@ -880,6 +872,12 @@ def _create_regions(devices):
             _log_error("Error: could not get LV information for '%s'" % dev)
             _exit(1)
 
+        # @stats_create foreach segment
+        # e.g. for a 3-segment device:
+        # |    0..1023    |   1024..2047   | 2048..2099 |
+        # @stats_create 0+1024 $ourid $ouraux
+        # @stats_create 1024+1024 $ourid $ouraux
+        # @stats_create 2048+52 $ourid $ouraux
         dev_regions = dict()
         for segment in lvs[lv][SEGMENTS]:
             s_start = segment[SEG_START]

@@ -833,12 +833,12 @@ def _create_regions(devices):
     populated with region dictionaries indexed by region ID. Each
     region dictionary is indexed by area_ids in the form 'start+length'
     and contains an IoStat object containing counters for that area_id. """
+
     def _init_counters(dev, regions):
+        """ initialise the region list for a device and read initial samples
+        into the inactive (not current) slot. """
         _regions[dev] = regions
         _read_dev_stats(dev, _regions, not _curr)
-
-    def _init_one_region(dev, region):
-        return _init_counters(dev, {region: dict()})
 
     area_size = None
     step = None
@@ -896,6 +896,7 @@ def _create_regions(devices):
                          a_step=step, a_size=area_size)
 
             dev_regions[region] = dict()
+        # initialise counters once all regions are set up
         _init_counters(dev_name, dev_regions)
 
 

@@ -1113,6 +1113,8 @@ def main(argv):
     except KeyboardInterrupt as e:
         return 0
     except Exception as e:
+        if _debug:
+            raise
         _log_error("Unhandled exception: %s" % e)
         _exit(1)
 

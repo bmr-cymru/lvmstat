@@ -788,11 +788,6 @@ def _main_loop():
     _remove_regions(_regions)
 
 
-def _get_extent_area_size(lvs, lv, extents_per_area):
-    vg_extent_size = lvs[lv][VG_EXTENT_SIZE]
-    area_size = vg_extent_size * extents_per_area
-    return area_size
-
 def _create_region(dev, r_start, r_len, a_size=None, a_step=None, aux=""):
     """ Register a statistics region with the device-mapper.
 
@@ -849,12 +844,14 @@ def _create_regions(devices):
         # @stats_create - $ext_size*$ext_per_area $ourid $ouraux
         lvs = lvm.lvs()
         extents_per_area = _extents
+        vg_extent_size = lvs[lv][VG_EXTENT_SIZE]
+        area_size = vg_extent_size * extents_per_area
 
-    if _areas:
+    elif _areas:
         # @stats_create - $area_size $ourid $ouraux
         area_size = _areas
 
-    if _nr_areas:
+    elif _nr_areas:
         # @stats_create - /$nr_areas $ourid $ouraux
         step = _nr_areas
 
@@ -870,6 +867,7 @@ def _create_regions(devices):
         if not lvs:
             lvs = lvm.lvs()
         for lv in lvs.keys():
+            # use whole device
             lvs[lv][SEGMENTS] = [{SEG_START: 0, SEG_SIZE: 0}]
 
     if not lvs:
@@ -881,9 +879,6 @@ def _create_regions(devices):
         if lv not in lvs.keys():
             _log_error("Error: could not get LV information for '%s'" % dev)
             _exit(1)
-
-        if _extents:
-            area_size = _get_extent_area_size(lvs, lv, extents_per_area)
 
         dev_regions = dict()
         for segment in lvs[lv][SEGMENTS]:

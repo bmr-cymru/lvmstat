@@ -22,7 +22,7 @@ DMSETUP = "dmsetup"
 PROC_UPTIME = "/proc/uptime"
 PROC_STAT = "/proc/stat"
 PROC_MEMINFO = "/proc/meminfo"
-DM_MOD_PARAM_PATH ="/sys/module/dm_mod/parameters/"
+DM_MOD_PARAM_PATH = "/sys/module/dm_mod/parameters/"
 DM_ALLOCED_BYTES = "stats_current_allocated_bytes"
 
 ENV_TIME_FMT = "S_TIME_FORMAT"
@@ -366,19 +366,19 @@ SEGTYPE = "segtype"
 SEG_START = "seg_start"
 SEG_SIZE = "seg_size"
 
-class Lvm(object):
 
+class Lvm(object):
     # wrap _shell_out to allow e.g. maintaining a running lvm shell that
     # successive commands are piped to.
     def _run_command(self, cmd):
         return _shell_out(cmd)
 
     def lvs(self, vgname=None, lvname=None, segments=False):
-        LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE ]
+        LVS_FIELDS = [LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE]
         cmd = "lvs --units s --noheadings"
         fields = "-o " + ",".join(LVS_FIELDS)
         if segments:
-            SEG_FIELDS = [ SEGTYPE, SEG_SIZE, SEG_START ]
+            SEG_FIELDS = [SEGTYPE, SEG_SIZE, SEG_START]
             cmd += " --segments"
             fields += "," + ",".join(SEG_FIELDS)
         cmd += " " + fields
@@ -445,10 +445,11 @@ class Lvm(object):
         return vg_lv_name
 
     def lv_dm_name(self, vg_lv_name):
-        return vg_lv_name.replace('-', '--').replace('/','-')
+        return vg_lv_name.replace('-', '--').replace('/', '-')
 
 
 lvm = Lvm()
+
 
 def _set_alarm(secs):
     signal.signal(signal.SIGALRM, _handle_alarm)
@@ -886,7 +887,7 @@ def _create_regions(devices):
                        % (dev, s_start, s_size))
             dev_name = lvm.lv_dm_name(lv)
             region = _create_region(dev_name, s_start, s_size,
-                         a_step=step, a_size=area_size)
+                                    a_step=step, a_size=area_size)
 
             dev_regions[region] = dict()
         # initialise counters once all regions are set up
@@ -1066,10 +1067,10 @@ def _lvstat_parse_args(argv):
     _devices = args
 
 
-#pvstat_desc = "display iostat reports by physical volume"
-#vgstat_desc = "display iostat reports by volume group"
+# pvstat_desc = "display iostat reports by physical volume"
+# vgstat_desc = "display iostat reports by volume group"
 lvstat_desc = "display iostat reports by logcal volume"
-commands = [ "lvstat" ]
+commands = ["lvstat"]
 
 
 def lvstat_main(argv):

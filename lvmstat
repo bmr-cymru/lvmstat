@@ -883,16 +883,12 @@ def _create_regions(devices):
         _log_error("could not retrieve logical volume list")
         _exit(1)
 
+    extents_per_area = _extents
+
     if not _segments:
         for lv in lvs.keys():
             # use whole device
             lvs[lv][SEGMENTS] = [{SEG_START: 0, SEG_SIZE: 0}]
-
-    if _extents:
-        # @stats_create - $ext_size*$ext_per_area $ourid $ouraux
-        extents_per_area = _extents
-        vg_extent_size = lvs[lv][VG_EXTENT_SIZE]
-        area_size = vg_extent_size * extents_per_area
 
     elif _areas:
         # @stats_create - $area_size $ourid $ouraux
@@ -910,6 +906,11 @@ def _create_regions(devices):
         if lv not in lvs.keys():
             _log_error("could not get LV information for '%s'" % dev)
             _exit(1)
+
+        if _extents:
+            # @stats_create - $ext_size*$ext_per_area $ourid $ouraux
+            vg_extent_size = lvs[lv][VG_EXTENT_SIZE]
+            area_size = vg_extent_size * extents_per_area
 
         # @stats_create foreach segment
         # e.g. for a 3-segment device:

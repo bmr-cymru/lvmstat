@@ -1088,14 +1088,15 @@ def _lvstat_parse_args(argv):
         _devices = []
         return
 
-    # do we have an interval or count argument?
-    if args[-1:][0][0].isdigit():
-        # do we also have a count?
-        if args[-2:-1][0][0].isdigit():
-            _count = _validate_int_arg(args[-1:][0], "count")
-            args = args[:-1]
-        _interval = _validate_int_arg(args[-1:][0], "interval")
-        args = args[:-1]
+    for i in range(len(args)):
+        if args[i].isdigit():
+            _interval = _validate_int_arg(args.pop(i), "interval")
+            break
+
+    for i in range(len(args)):
+        if args[i].isdigit():
+            _count = _validate_int_arg(args.pop(i), "count")
+            break
 
     for dev in args:
         if not _validate_lv_name(dev):

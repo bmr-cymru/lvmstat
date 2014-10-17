@@ -358,6 +358,12 @@ LV_SIZE = "lv_size"
 
 # VG fields
 VG_NAME = "vg_name"
+PV_COUNT = "pv_count"
+LV_COUNT = "lv_count"
+VG_SEQNO = "vg_seqno"
+VG_ATTR = "vg_attr"
+VG_SIZE = "vg_size"
+VG_FREE = "vg_free"
 VG_EXTENT_SIZE = "vg_extent_size"
 
 # Segment fields
@@ -367,6 +373,8 @@ SEGTYPE = "segtype"
 SEG_START = "seg_start"
 SEG_SIZE = "seg_size"
 
+LVM_SIZE_ATTRS = [ LV_SIZE, VG_SIZE, VG_FREE, VG_EXTENT_SIZE ]
+LVM_COUNT_ATTRS = [ PV_COUNT, LV_COUNT ]
 
 class Lvm(object):
     # lvs cache - 1s ttl, args must match exactly.
@@ -440,8 +448,43 @@ class Lvm(object):
         self._lvs_cache = (_lvs, time.time(), vgname, lvname, segments)
         return _lvs
 
+    def vgs(self, vgname=None):
+        VGS_FIELDS = [
+            VG_NAME,
+            PV_COUNT, LV_COUNT,
+            VG_SEQNO, VG_ATTR,
+            VG_SIZE, VG_FREE,
+            VG_EXTENT_SIZE
+        ]
+        cmd = "vgs --units s --noheadings"
+        fields = "-o " + ",".join(VGS_FIELDS)
+        if vgname:
+            cmd += " %s" % vgname
+        output = self._run_command(cmd)
+        if not output:
+            return False
+        _vgs = dict()
+        for line in output.splitlines():
+            fields = line.split()
+            _vgs[fields[0]] = dict()
+            for (name, val) in zip(VGS_FIELDS, fields):
+                if name in LVM_SIZE_ATTRS:
+                    _vgs[fields[0]][name] = int(val.strip('S'))
+                elif name in LVM_COUNT_ATTRS:
+                    _vgs[fields[0]][name] = int(val)
+                else:
+                    _vgs[fields[0]][name] = val
+        return _vgs
+
+
     def lv_is_active(self, lv):
         return re.match("....a.....", lv[LV_ATTR])
+
+    def is_vg_name(self, vgname):
+        vgs = self.vgs(vgname=vgname)
+        if not vgs:
+            return False
+        return vgname in vgs
 
     def is_lv_name(self, lvname, vgname=None):
         lvs = self.lvs(vgname=vgname, lvname=lvname)
@@ -941,12 +984,14 @@ def _remove_regions(regions):
 
 
 def _validate_lv_name(lv_name):
-    """ This function _should_ accept a LV name given on the command line
-    and test that it is valid. Names may be in VG/LV, VG-LV, /dev/VG/LV,
+    """ Names may be in VG/LV, VG-LV, /dev/VG/LV,
     /dev/mapper/VG-LV format. """
-    return lv_name != "broken"
+    lv_name = lvm.canonicalize_lv_name(lv_name)
+    return lvm.is_lv_name(lv_name)
 
-
+def _validate_vg_name(vg_name):
+    return lvm.is_vg_name(vg_name)
+    
 def _parse_size_arg(arg, name, sectors=False):
     """ Parse a size argument with optional units suffix. All size values
     must be a multiple of the sector size (512 bytes).
@@ -1099,12 +1144,20 @@ def _lvstat_parse_args(argv):
             break
 
     for dev in args:
-        if not _validate_lv_name(dev):
-            msg = "'%s' is not a valid logical volume name"
+        msg = "'%s' is not a valid logical volume or volume group name"
+        if dev.isdigit():
             _log_error(msg % dev)
             _exit(1)
+        if not _validate_lv_name(dev):
+            if not _validate_vg_name(dev):
+                _log_error(msg % dev)
+                _exit(1)
+            else:
+                args.pop(args.index(dev))
+                lvs = lvm.lvs(vgname=dev)
+                args.extend(lvs.keys())
 
-    _devices = args
+    _devices = set(args)
 
 
 # pvstat_desc = "display iostat reports by physical volume"

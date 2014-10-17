@@ -242,6 +242,7 @@ def _log_info(msg):
 def _exit(status):
     if len(_regions):
         _remove_regions(_regions)
+    lvm.exit()
     sys.exit(status)
 
 
@@ -368,13 +369,37 @@ SEG_SIZE = "seg_size"
 
 
 class Lvm(object):
+    # lvs cache - 1s ttl, args must match exactly.
+    # (lvs, timestamp, vgname, lvname, segments)
+    _lvs_cache = None
+    _lvs_calls = 0
+    _lvs_cache_hits = 0
+    _lvs_cache_misses = 0
+
     # wrap _shell_out to allow e.g. maintaining a running lvm shell that
     # successive commands are piped to.
     def _run_command(self, cmd):
         return _shell_out(cmd)
 
+    def _lvs_cache_valid(self, args):
+        self._lvs_calls += 1
+        if self._lvs_cache:
+            now = time.time()
+            f = lambda (x, y): x == y
+            cache_args = self._lvs_cache[2:]
+            args_match = all(map(f, zip(cache_args, args)))
+            if args_match and now - self._lvs_cache[1] < 1.0:
+                self._lvs_cache_hits += 1
+                return True
+            else:
+                self._lvs_cache_misses += 1
+                return False
+
     def lvs(self, vgname=None, lvname=None, segments=False):
-        LVS_FIELDS = [LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE]
+        if self._lvs_cache_valid((vgname, lvname, segments)):
+            return self._lvs_cache
+
+        LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE ]
         cmd = "lvs --units s --noheadings"
         fields = "-o " + ",".join(LVS_FIELDS)
         if segments:
@@ -412,6 +437,7 @@ class Lvm(object):
                 seg[SEG_SIZE] = int(fields[6].strip("S"))
                 seg[SEG_START] = int(fields[7].strip("S"))
                 _lvs[vg_lv_name][SEGMENTS].append(seg)
+        self._lvs_cache = (_lvs, time.time(), vgname, lvname, segments)
         return _lvs
 
     def lv_is_active(self, lv):
@@ -446,6 +472,11 @@ class Lvm(object):
 
     def lv_dm_name(self, vg_lv_name):
         return vg_lv_name.replace('-', '--').replace('/', '-')
+
+    def exit(self):
+        msg = "lvs cache hits: %d misses: %d calls: %d"
+        vals = (self._lvs_cache_hits, self._lvs_cache_misses, self._lvs_calls)
+        _log_debug(msg % vals)
 
 
 lvm = Lvm()
@@ -787,6 +818,7 @@ def _main_loop():
         except KeyboardInterrupt:
             break
     _remove_regions(_regions)
+    lvm.exit()
 
 
 def _create_region(dev, r_start, r_len, a_size=None, a_step=None, aux=""):

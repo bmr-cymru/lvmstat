@@ -97,6 +97,23 @@ _extended = False
 _lvmstat_id = "lvmstat1"
 
 
+def _log_error(msg):
+    print("Error: " + msg, file=sys.stderr)
+
+
+def _log_warn(msg):
+    print("WARNING: " + msg, file=sys.stderr)
+
+
+def _log_debug(msg):
+    if _debug:
+        print("DEBUG: " + msg, file=sys.stderr)
+
+
+def _log_info(msg):
+    print(msg)
+
+
 class CpuStats(object):
     """ Class to represent CPU counters from /proc/stat """
     cpu_user = 0
@@ -220,23 +237,6 @@ class IoStats(object):
             self.wr_tot_ms = int(stats[12])
 
         _write_iostats_debug(stats)
-
-
-def _log_error(msg):
-    print("Error: " + msg, file=sys.stderr)
-
-
-def _log_warn(msg):
-    print("WARNING: " + msg, file=sys.stderr)
-
-
-def _log_debug(msg):
-    if _debug:
-        _log_error(msg)
-
-
-def _log_info(msg):
-    print(msg)
 
 
 def _exit(status):

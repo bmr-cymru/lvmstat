@@ -443,6 +443,12 @@ class Lvm(object):
     def lv_is_active(self, lv):
         return re.match("....a.....", lv[LV_ATTR])
 
+    def is_lv_name(self, lvname, vgname=None):
+        lvs = self.lvs(vgname=vgname, lvname=lvname)
+        if not lvs:
+            return False
+        return lvname in lvs
+
     def canonicalize_lv_name(self, name, verify=False, active=False):
         # remove leading prefixes
         if name.startswith("/dev/"):

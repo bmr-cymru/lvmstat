@@ -405,7 +405,7 @@ class Lvm(object):
 
     def lvs(self, vgname=None, lvname=None, segments=False):
         if self._lvs_cache_valid((vgname, lvname, segments)):
-            return self._lvs_cache
+            return self._lvs_cache[0]
 
         LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE ]
         cmd = "lvs --units s --noheadings"
@@ -487,7 +487,7 @@ class Lvm(object):
         return vgname in vgs
 
     def is_lv_name(self, lvname, vgname=None):
-        lvs = self.lvs(vgname=vgname, lvname=lvname)
+        lvs = self.lvs(vgname=vgname)
         if not lvs:
             return False
         return lvname in lvs

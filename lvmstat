@@ -690,8 +690,8 @@ def _get_area_range(area, fctr):
     suffix = _suffixes[fctr]
     area_vals = (start / fctr, suffix, end / fctr, suffix)
     if fctr == 1:
-        return "%10d%s - %10d%s" % area_vals
-    return "%10.2f%s - %10.2f%s" % area_vals
+        return "%d%s-%-d%s" % area_vals
+    return "%.2f%s-%-.2f%s" % area_vals
 
 def _show_area_range(area, fctr):
     _log_info(_get_area_range(area, fctr))

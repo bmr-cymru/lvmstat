@@ -563,8 +563,6 @@ def _show_stats_ext(dev, itv, fctr, stc, stp):
     """ Show statatistics in the extended iostat format. """
     _log_debug("_show_stats_ext(itv=%d, fctr=%d, ...)" % (itv, fctr))
 
-    dev_str = "%-13s" % dev
-
     # throughput and utilisation
     tput = ((stc.nr_ios - stp.nr_ios) * HZ) / itv
     util = _scale(stp.tot_ticks, stc.tot_ticks, itv)
@@ -618,13 +616,11 @@ def _show_stats_ext(dev, itv, fctr, stc, stp):
         svctm,
         util / 10.0
     )
-    _log_info(dev_str + fmt)
-    _log_info(stc.area_id)
+    _log_info(dev + fmt)
 
 
 def _show_stats_basic(dev, itv, fctr, stc, stp):
     """ Show statistics in the basic iostat formati. """
-    dev_str = "%-13s" % dev
     rd_sec = stc.rd_sectors - stp.rd_sectors
     wr_sec = stc.wr_sectors - stp.wr_sectors
     #       tps   rsec/s wsec/s rsec   wsec
@@ -636,8 +632,7 @@ def _show_stats_basic(dev, itv, fctr, stc, stp):
         rd_sec / fctr,
         wr_sec / fctr
     )
-    _log_info(dev_str + fmt)
-    _log_info(stc.area_id)
+    _log_info(dev + fmt)
 
 
 def _show_cpu_stats(itv, cpc, cpp):
@@ -712,6 +707,7 @@ def _show_stats(regions, rectime):
 
     fctr = _show_header()
     for dev in regions.keys():
+        dev_str = "%-13s" % dev
         for region in regions[dev]:
             area_list = _iostats[_curr][dev][region].keys()
             area_list.sort()
@@ -719,9 +715,12 @@ def _show_stats(regions, rectime):
                 stc = _iostats[_curr][dev][region][area]
                 stp = _iostats[not _curr][dev][region][area]
                 if _extended:
-                    _show_stats_ext(dev, itv, fctr, stc, stp)
+                    _show_stats_ext(dev_str, itv, fctr, stc, stp)
                 else:
-                    _show_stats_basic(dev, itv, fctr, stc, stp)
+                    _show_stats_basic(dev_str, itv, fctr, stc, stp)
+                _log_info("%s" % area)
+
+    # This line intentionally left blank.
     _log_info("")
 
 

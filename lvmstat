@@ -920,7 +920,7 @@ def _create_region(dev, r_start, r_len, a_size=None, a_step=None, aux=""):
 
     """
     global _show_area_ranges
-    s_range = "%d+%d" % (r_start, r_len) if all((r_start, r_len)) else "-"
+    s_range = "%d+%d" % (r_start, r_len) if any((r_start, r_len)) else "-"
     s_step = "%d" % a_size if a_size else "/%d" % a_step if a_step else "/1"
     region = _dm_stats_create(dev, s_range, s_step, _lvmstat_id, aux)
     _show_area_ranges = any((r_start, r_len, a_size, a_step))

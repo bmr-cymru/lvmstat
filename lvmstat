@@ -961,11 +961,11 @@ def _create_regions(devices):
             # use whole device
             lvs[lv][SEGMENTS] = [{SEG_START: 0, SEG_SIZE: 0}]
 
-    elif _areas:
+    if _areas:
         # @stats_create - $area_size $ourid $ouraux
         area_size = _areas
 
-    elif _nr_areas:
+    if _nr_areas:
         # @stats_create - /$nr_areas $ourid $ouraux
         step = _nr_areas
 
@@ -989,13 +989,14 @@ def _create_regions(devices):
         # @stats_create 0+1024 $ourid $ouraux
         # @stats_create 1024+1024 $ourid $ouraux
         # @stats_create 2048+52 $ourid $ouraux
+        dev_name = lvm.lv_dm_name(lv)
         dev_regions = set()
         for segment in lvs[lv][SEGMENTS]:
             s_start = segment[SEG_START]
             s_size = segment[SEG_SIZE]
-            _log_debug("creating region for '%s', start=%d, size=%d"
-                       % (dev, s_start, s_size))
-            dev_name = lvm.lv_dm_name(lv)
+            _log_debug("creating region for '%s',"
+                       "start=%s, size=%s, step=%s, a_size=%s"
+                       % (dev_name, s_start, s_size, step, area_size))
             region = _create_region(dev_name, s_start, s_size,
                                     a_step=step, a_size=area_size)
 

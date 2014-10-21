@@ -907,7 +907,7 @@ def _create_region(dev, r_start, r_len, a_size=None, a_step=None, aux=""):
         msg = "failed to create statistics region for '%s'"
         _log_error(msg % dev)
         _exit(1)
-    return region
+    return region.strip("\n")
 
 
 # register the list of regions with the device-mapper

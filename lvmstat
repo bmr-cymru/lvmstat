@@ -40,16 +40,23 @@ except KeyError:
 # enable debugging messages
 _debug = False
 
-# the list of devices to be monitored
-_devices = []
+# The set of devices listed on the command line or the set of active
+# logical volumes (as returned by lvs) if no device arguments were given.
+_devices = set([])
 
-# the current set of monitored regions
+# The current set of monitored regions, _regions is a dictionary of
+# string:set pairs mapping devices to sets of region_ids.
 _regions = dict()
 
 # Two element list of dictionaries containing counter samples.
 #
 # Each dictionary is indexed by device and contains a dictionary
-# of iostats objects indexed by region ID.
+# indexed by region ID. Each region ID yields a dictionary of area IDs
+# containing IoStats objects holding counter samples for the corresponding
+# device, region ID, and area ID:
+#
+# _iostats[curr][dev][region_id][area_id] = IoStat(counters)
+#
 _iostats = [dict(), dict()]
 # current index into _iostats; inverted at the end of each _interval.
 _curr = 0
@@ -961,7 +968,7 @@ def _create_regions(devices):
         # @stats_create 0+1024 $ourid $ouraux
         # @stats_create 1024+1024 $ourid $ouraux
         # @stats_create 2048+52 $ourid $ouraux
-        dev_regions = dict()
+        dev_regions = set()
         for segment in lvs[lv][SEGMENTS]:
             s_start = segment[SEG_START]
             s_size = segment[SEG_SIZE]
@@ -971,7 +978,7 @@ def _create_regions(devices):
             region = _create_region(dev_name, s_start, s_size,
                                     a_step=step, a_size=area_size)
 
-            dev_regions[region] = dict()
+            dev_regions.add(region)
         # initialise counters once all regions are set up
         _init_counters(dev_name, dev_regions)
 
@@ -1128,10 +1135,6 @@ def _lvstat_parse_args(argv):
             _log_error(msg % name)
             _exit(1)
         return _v
-
-    if not(len(args)):
-        _devices = []
-        return
 
     for i in range(len(args)):
         if args[i].isdigit():

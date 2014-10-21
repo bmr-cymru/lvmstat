@@ -380,8 +380,9 @@ SEGTYPE = "segtype"
 SEG_START = "seg_start"
 SEG_SIZE = "seg_size"
 
-LVM_SIZE_ATTRS = [ LV_SIZE, VG_SIZE, VG_FREE, VG_EXTENT_SIZE ]
-LVM_COUNT_ATTRS = [ PV_COUNT, LV_COUNT ]
+LVM_SIZE_ATTRS = [LV_SIZE, VG_SIZE, VG_FREE, VG_EXTENT_SIZE]
+LVM_COUNT_ATTRS = [PV_COUNT, LV_COUNT]
+
 
 class Lvm(object):
     # lvs cache - 1s ttl, args must match exactly.
@@ -414,7 +415,7 @@ class Lvm(object):
         if self._lvs_cache_valid((vgname, lvname, segments)):
             return self._lvs_cache[0]
 
-        LVS_FIELDS = [ LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE ]
+        LVS_FIELDS = [LV_NAME, VG_NAME, LV_ATTR, LV_SIZE, VG_EXTENT_SIZE]
         cmd = "lvs --units s --noheadings"
         fields = "-o " + ",".join(LVS_FIELDS)
         if segments:
@@ -482,7 +483,6 @@ class Lvm(object):
                 else:
                     _vgs[fields[0]][name] = val
         return _vgs
-
 
     def lv_is_active(self, lv):
         return re.match("....a.....", lv[LV_ATTR])
@@ -996,9 +996,11 @@ def _validate_lv_name(lv_name):
     lv_name = lvm.canonicalize_lv_name(lv_name)
     return lvm.is_lv_name(lv_name)
 
+
 def _validate_vg_name(vg_name):
     return lvm.is_vg_name(vg_name)
-    
+
+
 def _parse_size_arg(arg, name, sectors=False):
     """ Parse a size argument with optional units suffix. All size values
     must be a multiple of the sector size (512 bytes).

@@ -1224,13 +1224,17 @@ def main(argv):
     """ lvmstat - dispatch a command or show usage. """
     # use the default locale from the environment
     locale.setlocale(locale.LC_ALL, "")
-    if argv[0].endswith('lvmstat'):
-        argv = argv[1:]
-    cmd = os.path.basename(argv[0])
-    if cmd not in commands:
+    def cmd_err(cmd):
         _log_error("unknown command '%s'" % cmd)
         _lvmstat_usage()
         _exit(1)
+    if argv[0].endswith('lvmstat'):
+        argv = argv[1:]
+    if not len(argv):
+        cmd_err("")
+    cmd = os.path.basename(argv[0])
+    if cmd not in commands:
+        cmd_err(cmd)
     try:
         # call cmd's main() function
         globals()["%s_main" % cmd](argv)

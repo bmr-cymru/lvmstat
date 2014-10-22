@@ -727,10 +727,13 @@ def _show_stats(regions, rectime):
     fctr = _show_header()
     for dev in regions.keys():
         dev_str = "%-13s" % dev
-        for region in regions[dev]:
+        dev_regions = list(regions[dev])
+        dev_regions.sort()
+        for region in dev_regions:
             area_list = _iostats[_curr][dev][region].keys()
-            area_list.sort()
+            area_list.sort(key=lambda a: int(a.split("+")[0]))
             for area in area_list:
+                _log_debug("area: %s" % area)
                 stc = _iostats[_curr][dev][region][area]
                 stp = _iostats[not _curr][dev][region][area]
                 if _extended:

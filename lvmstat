@@ -1108,7 +1108,8 @@ def _lvstat_parse_args(argv):
         ("-m", "--megabytes", "mbytes", units_help % "megabytes", None, _st),
         ("-t", "--times", "times", "Print the time for each report", None, _st)
     ]
-    parser = OptionParser()
+    usage = "usage: lvstat [options] [LogicalVolumeName [VolumeGroupName...]]"
+    parser = OptionParser(usage=usage)
     f = lambda (s, l, d, h, t, a):\
         parser.add_option(s, l, dest=d, help=h, type=t, action=a)
     map(f, opt_tab)

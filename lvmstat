@@ -640,19 +640,20 @@ def _show_stats_basic(dev, itv, fctr, stc, stp):
 
 def _show_cpu_stats(itv, cpc, cpp):
     """ Show cpu statistics in the iostat format. """
+    cpu_itv = itv * os.sysconf("SC_NPROCESSORS_ONLN")
     if cpc.cpu_idle < cpp.cpu_idle:
-        idle = _scale_percent(cpp.cpu_idle, cpc.cpu_idle, itv)
+        idle = _scale_percent(cpp.cpu_idle, cpc.cpu_idle, cpu_itv)
     else:
         idle = 0.0
     hdr = "avg-cpu:  %user   %nice %system %iowait  %steal   %idle"
     fmt = "         %6.2f  %6.2f  %6.2f  %6.2f  %6.2f  %6.2f\n"
     fmt %= (
-        _scale_percent(cpp.cpu_user, cpc.cpu_user, itv),
-        _scale_percent(cpp.cpu_nice, cpc.cpu_nice, itv),
+        _scale_percent(cpp.cpu_user, cpc.cpu_user, cpu_itv),
+        _scale_percent(cpp.cpu_nice, cpc.cpu_nice, cpu_itv),
         _scale_percent(cpp.cpu_sys + cpp.cpu_softirq + cpp.cpu_hardirq,
-                       cpc.cpu_sys + cpc.cpu_softirq + cpc.cpu_hardirq, itv),
-        _scale_percent(cpp.cpu_iowait, cpc.cpu_iowait, itv),
-        _scale_percent(cpp.cpu_steal, cpc.cpu_steal, itv),
+                       cpc.cpu_sys + cpc.cpu_softirq + cpc.cpu_hardirq, cpu_itv),
+        _scale_percent(cpp.cpu_iowait, cpc.cpu_iowait, cpu_itv),
+        _scale_percent(cpp.cpu_steal, cpc.cpu_steal, cpu_itv),
         idle
     )
     _log_info(hdr)

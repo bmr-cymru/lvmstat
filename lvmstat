@@ -78,11 +78,12 @@ _count = 1
 
 # boolean flags controlling report formatting
 
-# report statistics for each extent in a device
+# report statistics by extent range
 _extents = False
 # report statistics for each segment in a device
 _segments = False
-# report statistics for device areas of a given size
+# report statistics for device areas of a given
+# size or count
 _areas = False
 _nr_areas = False
 
@@ -101,14 +102,14 @@ _display_iso = False
 # default is traditional
 _extended = False
 
-# displaye sector ranges covered by stats areas
+# display sector ranges covered by stats areas
 _show_area_ranges = False
 
 _lvmstat_id = "lvmstat1"
 
 
 def _log_error(msg):
-    print("Error: " + msg, file=sys.stderr)
+    print("ERROR: " + msg, file=sys.stderr)
 
 
 def _log_warn(msg):
